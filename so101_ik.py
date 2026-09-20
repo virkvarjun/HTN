@@ -58,7 +58,9 @@ LIMITS = SAFE_LIMITS
 # around those points, so this is the crash margin. The gripper frame is the fingertips and may come down
 # to the table, which is TABLE_Z below base_link's origin (the base plate): with the arm resting on the
 # table in its folded pose the fingertips read z = -1.8 cm (hand-guided demo, 2026-09-19).
-MIN_LINK_Z = {"elbow_flex": 0.04, "wrist_flex": 0.04, "wrist_roll": 0.04, "gripper_frame": -0.02}
+# The gripper frame floor is 3.5 cm below base_link: in the folded rest pose the fingertips rest on the table and
+# read -1.8 to -2.4 cm (seen 2026-09-19/20), and a move out of rest must not be refused at its first step.
+MIN_LINK_Z = {"elbow_flex": 0.04, "wrist_flex": 0.04, "wrist_roll": 0.04, "gripper_frame": -0.035}
 UNSAFE_MSG = "Refusing to command it: driving the arm past this position risks breaking the robot."
 
 
@@ -70,8 +72,10 @@ def _wrap(deg):
     return (deg + 180.0) % 360.0 - 180.0
 
 
-def _roll_for(jaw_yaw, azimuth, pitch):
-    """wrist_roll (rad) that points the jaw axis at heading jaw_yaw, given the pan azimuth and pitch."""
+def _roll_for(jaw_yaw, azimuth, pitch, exact=False):
+    """wrist_roll (rad) that points the jaw axis at heading jaw_yaw, given the pan azimuth and pitch.
+    exact=True: honour the heading's direction (which jaw is on which side), flipping by 180 only if the
+    direct roll is outside the limits. Otherwise the candidate furthest from a limit is taken."""
     h = jaw_yaw - azimuth
     s = np.sin(pitch)
     if abs(s) < 1e-9:
@@ -80,6 +84,8 @@ def _roll_for(jaw_yaw, azimuth, pitch):
     lo, hi = np.radians(LIMITS["wrist_roll"])
     # The jaws are symmetric, so direct and direct+180 both work; take the one furthest from a limit.
     cands = [np.radians(_wrap(np.degrees(c))) for c in (direct, direct + np.pi)]
+    if exact:
+        return next((c for c in cands if lo <= c <= hi), None)
     cands = [c for c in cands if lo <= c <= hi]
     return max(cands, key=lambda c: min(c - lo, hi - c)) if cands else None
 
@@ -191,8 +197,9 @@ def recovery_waypoints(start, target, n_from_span):
     )
 
 
-def ik(x, y, z, jaw_yaw_deg, approach_pitch_deg=-90.0):
-    """Joint angles (deg) placing gripper_frame_link at (x, y, z), or None if unreachable or unsafe."""
+def ik(x, y, z, jaw_yaw_deg, approach_pitch_deg=-90.0, exact_jaw=False):
+    """Joint angles (deg) placing gripper_frame_link at (x, y, z), or None if unreachable or unsafe.
+    exact_jaw=True keeps the jaw heading's direction (which jaw is on which side of the target)."""
     if z < TABLE_Z:
         return None
     dx, dy, dz = x - P0[0], y - P0[1], z - P0[2]
@@ -204,7 +211,7 @@ def ik(x, y, z, jaw_yaw_deg, approach_pitch_deg=-90.0):
     # and wrist_roll depends on the pan azimuth. Fixed-point iterate; converges in 2-3 steps.
     azimuth = heading
     for _ in range(8):
-        roll = _roll_for(yaw, azimuth, pitch)
+        roll = _roll_for(yaw, azimuth, pitch, exact_jaw)
         if roll is None:
             return None
         lateral = LAT_R + N0 * np.cos(roll) + V0 * np.sin(roll)

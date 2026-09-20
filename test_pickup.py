@@ -19,10 +19,36 @@ from fake_tracker import serve
 from grasp_robot import grasp_segment, tag_pose_at, relative_offsets, place, solve
 from replay_demo import load
 from sesame_tracker import Tracker
-from so101_ik import fk
+from so101_ik import fk, ik, JOINTS
 import sesame_pickup
 
 DEMO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "demos", "grip.json")
+
+
+def synthetic_demo():
+    """A grasp demonstration made up for the test: a top-down descent from 5 cm above to a grip at 9.4 cm
+    height, jaws closing, then a short lift. Same layout as record_demo.py writes, so the test needs no
+    recording on disk."""
+    samples, keyframes = [], []
+    t = 0.0
+    x, y, yaw = 0.229, 0.051, -173.4
+    # the approach comes in tilted and straightens to vertical for the grip, as a hand-guided one does:
+    # held straight down this arm reaches nothing above about 12 cm
+    for z, pitch, grip, label in [(0.125, -65, 22, None), (0.115, -72, 22, None), (0.105, -80, 22, None), (0.098, -87, 22, "keyframe"), (0.094, -90, 22, None),
+                                  (0.094, -90, 8, None), (0.094, -90, 0, "grasp"), (0.094, -90, 0, None), (0.094, -90, 0, None),
+                                  (0.098, -87, 0, None), (0.105, -80, 0, None), (0.115, -72, 0, "keyframe")]:
+        q = ik(x, y, z, yaw, pitch)
+        assert q is not None, "the synthetic grasp pose must be reachable"
+        p = fk(q)
+        samples.append({"t": round(t, 3), "joints": {j: float(q[j]) for j in JOINTS}, "gripper": float(grip), "pose": p})
+        if label:
+            keyframes.append({"t": round(t, 3), "index": len(samples) - 1, "label": label})
+        t += 0.5
+    return {"name": "synthetic", "rate_hz": 2.0, "samples": samples, "keyframes": keyframes}
+
+
+def load_demo():
+    return load(DEMO) if os.path.exists(DEMO) else synthetic_demo()
 
 
 def tracked_demo(demo, frame, tag_base_heading_from_jaw=90.0):
@@ -65,7 +91,7 @@ def run_case(name, frame, robot_floor, arm_floor, zup, expect_fail=False):
     servers = serve(robot_floor, arm_floor, zup, noise=0.02)
     try:
         time.sleep(0.2)
-        demo = tracked_demo(load(DEMO), frame)
+        demo = tracked_demo(load_demo(), frame)
         obs = Tracker("localhost").observe_steady(0.5)
         assert obs is not None, "fake tracker not seen"
         got, want, failed = grasp_offset(frame, demo, obs)
@@ -91,8 +117,7 @@ def run_case(name, frame, robot_floor, arm_floor, zup, expect_fail=False):
 
 
 def main():
-    if not os.path.exists(DEMO):
-        print(f"no demo at {DEMO}: record one with record_demo.py first"); return 1
+    print("demo:", "recorded " + DEMO if os.path.exists(DEMO) else "synthetic (no recording on disk)")
     base = ArmFrame(rot(180.0), np.array([70.0, 30.0]), False, {"x": 70.0, "y": 8.0, "heading": 180.0}, 0.05, [3])
     run_case("tag moved and turned", base, (46, 28, 75), (70, 8, 180), True)
     run_case("arm base tag moved 3 cm (board shifted)", base, (49, 28, 75), (73, 8, 180), True)

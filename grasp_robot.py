@@ -80,7 +80,7 @@ def solve(poses, grasp_t, release_t, squeeze):
     traj, failed = [], []
     t_off = poses[0]["t"]
     for i, p in enumerate(poses):
-        q = ik(p["x"], p["y"], p["z"], p["jaw_yaw"], p["pitch"])
+        q = ik(p["x"], p["y"], p["z"], p["jaw_yaw"], p["pitch"], exact_jaw=True)
         if q is None:
             failed.append((i, p))
             continue
@@ -105,7 +105,10 @@ def main():
     ap.add_argument("--release", action="store_true", help="torque off at the end")
     args = ap.parse_args()
 
-    demo = load(args.demo)
+    try:
+        demo = load(args.demo)
+    except FileNotFoundError:
+        print(f"no demo '{args.demo}': record one with record_demo.py (with the tracker running)"); return 1
     if not os.path.exists(args.frame):
         print(f"{args.frame} not found: run calibrate_arm_frame.py first"); return 1
     frame0 = ArmFrame.load(args.frame)
@@ -120,9 +123,9 @@ def main():
 
     tracker = Tracker(args.tracker)
     print(f"reading the tracker at {tracker.host}, units {tracker.units}")
-    obs = tracker.observe_steady(1.0)
+    obs = tracker.wait_for_robot(30.0)
     if obs is None:
-        print("no camera sees the quadruped's tag"); return 1
+        print("no camera reported the quadruped's tag in 30 s"); return 1
     frame_now = frame0.adjusted_for_arm_tag(obs["arm"])
     if frame_now is not frame0:
         print(f"arm base tag moved since calibration, transform re-derived from it: {frame_now.describe()}")

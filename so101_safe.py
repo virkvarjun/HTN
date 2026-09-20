@@ -35,3 +35,34 @@ def send(robot, action):
         print(msg)
         raise UnsafePoseError(msg)
     return robot.send_action(action)
+
+
+def arm_config(port):
+    """SO101FollowerConfig for this arm: the repo's calibration/so_follower/follower.json when present
+    (the motor calibration of this particular arm, so any laptop can drive it), else LeRobot's cache."""
+    from pathlib import Path
+    from lerobot.robots.so_follower import SO101FollowerConfig
+    here = Path(__file__).resolve().parent / "calibration" / "so_follower"
+    if (here / "follower.json").exists():
+        return SO101FollowerConfig(port=port, id="follower", calibration_dir=here)
+    return SO101FollowerConfig(port=port, id="follower")
+
+
+def connect_with_retries(robot, tries=6, pause_s=0.4):
+    """robot.connect(calibrate=False), retried: the Feetech bus now and then returns a corrupted or missing
+    status packet during the first writes after connect ("Incorrect status packet", "no status packet")."""
+    import time
+    last = None
+    for attempt in range(tries):
+        try:
+            robot.connect(calibrate=False)
+            return robot
+        except ConnectionError as e:
+            last = e
+            print(f"arm bus glitch on connect ({str(e).split('[')[-1].strip(']')}), retrying ({attempt + 1}/{tries})")
+            try:
+                robot.bus.port_handler.closePort()
+            except Exception:
+                pass
+            time.sleep(pause_s)
+    raise last

@@ -7,7 +7,12 @@
 # States: http://<pi>:8003/state.json and :8004/state.json. Ctrl-C stops both.
 W=${1:-63}; H=${2:-63}; LENS=${3:--}; ROBOT_HEIGHT=${4:-10.5}
 cd "$(dirname "$0")" || exit 1
+[ -f pi/common.sh ] && [ -d pi/tracker ] || { echo "pi/ (Sean's tracker and Pi scripts) is not in this checkout: it lives on origin/devel/sean. Merge or check out that branch first."; exit 1; }
 . pi/common.sh
+# common.sh looks for the host file next to itself only when run from pi/; sourced from here, read it explicitly.
+[ -f pi/host ] && PI_HOST=$(cat pi/host) && PI=qnxuser@$PI_HOST
+# a hotspot hands the Pi a new address now and then; accept its host key at a new address without a prompt
+SSH_OPTS="$SSH_OPTS -o StrictHostKeyChecking=accept-new -o BatchMode=yes"
 scp -q $SSH_OPTS -r pi/tracker $PI: || exit 1
 ssh -t $SSH_OPTS $PI "[ -w /dev/i2c6 ] && [ -w /dev/i2c4 ] || { echo 'lens access was reset by a reboot, fixing it with sudo:'; sudo chmod 666 /dev/i2c4 /dev/i2c6; }; \
 cd tracker && slay -f tracker >/dev/null 2>&1; \

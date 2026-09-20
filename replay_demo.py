@@ -19,7 +19,7 @@ import time
 import numpy as np
 
 from so101_ik import JOINTS, check_pose
-from so101_safe import send, default_port
+from so101_safe import send, default_port, arm_config, connect_with_retries
 
 FPS = 30
 APPROACH_DEG_PER_S = 15.0
@@ -59,9 +59,9 @@ class Arm:
     def __init__(self, port):
         if not port:
             raise SystemExit("no arm found: plug in the SO-101 (a USB serial device), or set SO101_PORT / --port")
-        from lerobot.robots.so_follower import SO101Follower, SO101FollowerConfig
-        self.robot = SO101Follower(SO101FollowerConfig(port=port, id="follower"))
-        self.robot.connect(calibrate=False)
+        from lerobot.robots.so_follower import SO101Follower
+        self.robot = SO101Follower(arm_config(port))
+        connect_with_retries(self.robot)
 
     def read(self):
         return {k[:-4]: float(v) for k, v in self.robot.get_observation().items() if k.endswith(".pos")}

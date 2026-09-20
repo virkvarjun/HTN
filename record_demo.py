@@ -27,7 +27,7 @@ import termios
 import time
 import tty
 
-from so101_safe import default_port
+from so101_safe import default_port, arm_config, connect_with_retries
 from so101_ik import JOINTS, fk
 from sesame_tracker import Tracker, Poller
 
@@ -38,9 +38,9 @@ class Arm:
     def __init__(self, port):
         if not port:
             raise SystemExit("no arm found: plug in the SO-101 (a USB serial device), or set SO101_PORT / --port")
-        from lerobot.robots.so_follower import SO101Follower, SO101FollowerConfig
-        self.robot = SO101Follower(SO101FollowerConfig(port=port, id="follower"))
-        self.robot.connect(calibrate=False)
+        from lerobot.robots.so_follower import SO101Follower
+        self.robot = SO101Follower(arm_config(port))
+        connect_with_retries(self.robot)
         # The Feetech bus occasionally drops a status packet right after connect; retry the torque-off.
         for attempt in range(5):
             try:
@@ -112,10 +112,10 @@ def main():
     poller = None
     if not args.no_tracker:
         tracker = Tracker(args.tracker)
-        first = tracker.observe()
+        first = tracker.wait_for_robot(40.0)
         if first is None:
-            print(f"no tracker sees the quadruped at {tracker.host} (units {tracker.units}).")
-            print("Start it with sh pi/live.sh and check the tag is in view, or record with --no-tracker.")
+            print(f"no tracker reported the quadruped at {tracker.host} (units {tracker.units}) in 40 s.")
+            print("Are the trackers running (sh run.sh trackers) and is the tag in view? Or record with --no-tracker.")
             return 1
         print(f"tracker: camera {first['unit']} sees the quadruped at ({first['robot']['x']:.1f}, {first['robot']['y']:.1f}) cm heading {first['robot']['heading']:.0f}")
         poller = Poller(tracker, period=0.3)
